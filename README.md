@@ -1,6 +1,6 @@
 # A native plotting widget for Textual apps
 
-[Textual](https://www.textualize.io/) is an excellent Python framework for building applications in the terminal, or on the web. This library provides a plot widget which your app can use to plot all kinds of quantitative data. So, no pie charts, sorry. The widget support scatter plots and line plots, and can also draw using _high-resolution_ characters like unicode half blocks, quadrants and 8-dot Braille characters. It may still be apparent that these are drawn using characters that take up a full block in the terminal, especially when plot series overlap. However, the use of these characters can reduce the line thickness and improve the resolution tremendously.
+[Textual](https://www.textualize.io/) is an excellent Python framework for building applications in the terminal, or on the web. This library provides a plot widget which your app can use to plot all kinds of quantitative data. So, no pie charts, sorry. The widget support scatter plots, line plots and bar plots, and can also draw using _high-resolution_ characters like unicode half blocks, quadrants and 8-dot Braille characters. It may still be apparent that these are drawn using characters that take up a full block in the terminal, especially when plot series overlap. However, the use of these characters can reduce the line thickness and improve the resolution tremendously.
 
 ## Screenshots
 
@@ -16,6 +16,7 @@ The _daytime spectrum_ dataset shows the visible-light spectrum recorded by an O
 
 - Line plots
 - Scatter plots
+- Bar charts
 - Automatic scaling and tick placement at _nice_ intervals (1, 2, 5, etc.)
 - Axes labels
 - High-resolution modes using unicode half blocks (1x2), quadrants (2x2) and braille (2x8) characters
@@ -127,6 +128,36 @@ class MinimalApp(App[None]):
         x = np.linspace(0, 10, 21)
         y = 0.2 * x - 1 + rng.normal(loc=0.0, scale=0.2, size=len(x))
         plot.scatter(x, y, marker="⦿")
+
+
+MinimalApp().run()
+```
+
+### Bar charts
+
+To create bar charts, use the `bar()` method, which accepts a `marker_style` argument to set the color of the bars. If multiple plots are included in a single widget, then the bar chart is rendered first, the line plot second and finally the scatter plot third:
+![screenshot of bar chart](docs/images/screenshot-bar.png)
+```python
+from textual.app import App, ComposeResult
+from textual_plot import PlotWidget, HiResMode
+
+
+class MinimalApp(App[None]):
+    def compose(self) -> ComposeResult:
+        yield PlotWidget()
+
+    def on_mount(self) -> None:
+        plot = self.query_one(PlotWidget)
+
+        # Example data
+        x = [1, 2, 3, 4, 5, 6, 7, 8]
+        bar_y = [1, 4, 9, 16, 25, 36, 49, 34]
+
+        # Add a bar plot
+        plot.bar(x=x, y=bar_y, label="Foobar", marker_style="#5e5ea7")
+
+        # Show a legend
+        plot.show_legend()
 
 
 MinimalApp().run()

@@ -43,6 +43,13 @@ FloatArray: TypeAlias = NDArray[np.floating]
 
 ZOOM_FACTOR = 0.05
 
+LEGEND_BAR = {
+    None: "█",
+    HiResMode.BRAILLE: "⠇",
+    HiResMode.HALFBLOCK: "▌",
+    HiResMode.QUADRANT: "▌",
+}
+
 LEGEND_LINE = {
     None: "███",
     HiResMode.BRAILLE: "⠒⠒⠒",
@@ -71,6 +78,12 @@ class DataSet:
     x: FloatArray
     y: FloatArray
     hires_mode: HiResMode | None
+
+
+@dataclass
+class BarPlot(DataSet):
+    marker: str
+    marker_style: str
 
 
 @dataclass
@@ -279,6 +292,45 @@ class PlotWidget(Widget, can_focus=True):
         self._labels = []
         self.refresh(layout=True)
 
+    def bar(
+        self,
+        x: ArrayLike,
+        y: ArrayLike,
+        marker: str = "█",
+        marker_style: str | None = None,
+        hires_mode: HiResMode | None = None,
+        label: str | None = None,
+    ) -> None:
+        """Graph dataset using a bar plot.
+
+        If you supply hires_mode, the dataset will be plotted using one of the
+        available high-resolution modes like 1x2, 2x2 or 2x8 pixel-per-cell
+        characters.
+
+        Args:
+            x: An ArrayLike with the data values for the horizontal axis.
+            y: An ArrayLike with the data values for the vertical axis.
+            fill_style: A string with the character used to fill the bars.
+                Defaults to "█".
+            hires_mode: A HiResMode enum or None to plot with full-height
+                blocks. Defaults to None.
+            label: A string with the label for the dataset. Defaults to None.
+        """
+        x, y = drop_nans_and_infs(np.array(x), np.array(y))
+        if marker_style is None:
+            marker_style = "green"
+        self._datasets.append(
+            BarPlot(
+                x=x,
+                y=y,
+                marker=marker,
+                marker_style=marker_style,
+                hires_mode=hires_mode,
+            )
+        )
+        self._labels.append(label or "")
+        self.refresh(layout=True)
+
     def plot(
         self,
         x: ArrayLike,
@@ -456,9 +508,19 @@ class PlotWidget(Widget, can_focus=True):
                         else LEGEND_MARKER[dataset.hires_mode]
                     ).center(3)
                     style = dataset.marker_style
+
                 elif isinstance(dataset, LinePlot):
                     marker = LEGEND_LINE[dataset.hires_mode]
                     style = dataset.line_style
+
+                elif isinstance(dataset, BarPlot):
+                    marker = (
+                        dataset.marker
+                        if dataset.hires_mode is None
+                        else LEGEND_BAR[dataset.hires_mode]
+                    ).center(3)
+                    style = dataset.marker_style
+
                 else:
                     # unsupported dataset type
                     continue
@@ -500,6 +562,23 @@ class PlotWidget(Widget, can_focus=True):
 
         legend = self.query_one("#legend", Static)
         legend.offset = position
+
+    def _get_x_limits(self, datasets: list[DataSet]) -> tuple[float, float]:
+        """Compute x-axis limits, expanding for bar plots if present."""
+        all_x = np.concatenate([d.x for d in datasets])
+        x_min, x_max = float(np.min(all_x)), float(np.max(all_x))
+
+        # Only expand if we have at least one bar plot
+        bar_xs = np.concatenate([d.x for d in datasets if isinstance(d, BarPlot)])
+        if len(bar_xs) > 0:
+            diffs = np.diff(np.sort(bar_xs))
+            bar_width = diffs[0] if len(diffs) > 0 else 1.0
+            half_width = bar_width / 2.0
+
+            x_min = min(x_min, np.min(bar_xs) - half_width)
+            x_max = max(x_max, np.max(bar_xs) + half_width)
+
+        return x_min, x_max
 
     def _get_legend_origin_coordinates(self, location: LegendLocation) -> Offset:
         """Calculate the (x, y) origin coordinates for positioning the legend.
@@ -558,6 +637,72 @@ class PlotWidget(Widget, can_focus=True):
             self._render_plot()
         return ""
 
+    def _render_bars(self, dataset: BarPlot) -> None:
+        """
+        Render a BarPlot on the canvas.
+
+        Bars are centered on each x value, with width 80% of the distance to the nearest neighbor,
+        leaving 10% gaps on each side. Bars grow from the baseline (0) up or down depending on the y value.
+        """
+        canvas = self.query_one("#plot", Canvas)
+        x_vals = dataset.x
+        y_vals = dataset.y
+        char = dataset.marker
+        style = dataset.marker_style
+        hires_mode = dataset.hires_mode
+
+        # Determine baseline (safe default if axes not yet initialized)
+        baseline = getattr(self, "_axes", None)
+        if baseline is not None and self._axes.y_min is not None:
+            baseline = self._axes.y_min
+        else:
+            baseline = 0
+
+        # Compute dynamic bar widths
+        if len(x_vals) > 1:
+            dxs = [abs(x_vals[i + 1] - x_vals[i]) for i in range(len(x_vals) - 1)]
+            dx = min(dxs)
+        else:
+            dx = 1.0  # fallback width for single bar
+
+        bar_half_width = 0.4 * dx  # 80% of spacing, leaving 10% gaps
+
+        if hires_mode:
+            # Collect hi-res pixels for all bars
+            hires_pixels = []
+            for xi, yi in zip(x_vals, y_vals):
+                x_left = xi - bar_half_width
+                x_right = xi + bar_half_width
+                y_base = baseline
+                y_top = yi
+
+                # Compute all corners in hi-res coordinates
+                # Generate subcell coordinates for the rectangle
+                x0, y0 = self.get_hires_pixel_from_coordinate(x_left, y_base)
+                x1, y1 = self.get_hires_pixel_from_coordinate(x_right, y_top)
+
+                # Loop over rectangle to collect pixels
+                for cx in range(min(x0, x1), max(x0, x1) + 1):
+                    for cy in range(min(y0, y1), max(y0, y1) + 1):
+                        hires_pixels.append((cx, cy))
+
+            canvas.set_hires_pixels(hires_pixels, style=style, hires_mode=hires_mode)
+
+        else:
+            # Normal mode: fill rectangle per bar
+            for xi, yi in zip(x_vals, y_vals):
+                x_left = xi - bar_half_width
+                x_right = xi + bar_half_width
+                y_base = baseline
+                y_top = yi
+
+                x0, y0 = self.get_pixel_from_coordinate(x_left, y_base)
+                x1, y1 = self.get_pixel_from_coordinate(x_right, y_top)
+
+                for cx in range(min(x0, x1), max(x0, x1) + 1):
+                    for cy in range(min(y0, y1), max(y0, y1) + 1):
+                        canvas.set_pixel(cx, cy, char=char, style=style)
+
     def _render_plot(self) -> None:
         try:
             if (canvas := self.query_one("#plot", Canvas))._canvas_size is None:
@@ -569,32 +714,36 @@ class PlotWidget(Widget, can_focus=True):
         # clear canvas
         canvas.reset()
 
-        # determine axis limits
+        # determine Y-axis limits
         if self._datasets:
-            xs = [dataset.x for dataset in self._datasets]
             ys = [dataset.y for dataset in self._datasets]
-            if self._auto_x_min:
-                self._x_min = float(np.min([np.min(x) for x in xs]))
-            if self._auto_x_max:
-                self._x_max = float(np.max([np.max(x) for x in xs]))
             if self._auto_y_min:
                 self._y_min = float(np.min([np.min(y) for y in ys]))
             if self._auto_y_max:
                 self._y_max = float(np.max([np.max(y) for y in ys]))
 
-            if self._x_min == self._x_max:
-                self._x_min -= 1e-6
-                self._x_max += 1e-6
             if self._y_min == self._y_max:
                 self._y_min -= 1e-6
                 self._y_max += 1e-6
 
-        # render datasets
-        for dataset in self._datasets:
-            if isinstance(dataset, ScatterPlot):
-                self._render_scatter_plot(dataset)
+        # determine X-axis limits, depends on whether a bar plot is present
+        if self._auto_x_min or self._auto_x_max:
+            self._x_min, self._x_max = self._get_x_limits(self._datasets)
+
+        # render datasets. Render bar plots, then line plots finally scatter plots
+        # to optimize the end result for data visibility.
+        for dataset in sorted(
+            self._datasets,
+            key=lambda d: (
+                0 if isinstance(d, BarPlot) else 1 if isinstance(d, LinePlot) else 2
+            ),
+        ):
+            if isinstance(dataset, BarPlot):
+                self._render_bars(dataset)
             elif isinstance(dataset, LinePlot):
                 self._render_line_plot(dataset)
+            elif isinstance(dataset, ScatterPlot):
+                self._render_scatter_plot(dataset)
 
         # render axis, ticks and labels
         canvas.draw_rectangle_box(

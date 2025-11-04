@@ -566,21 +566,22 @@ class PlotWidget(Widget, can_focus=True):
     def _get_x_limits(self, datasets: list[DataSet]) -> tuple[float, float]:
         """Compute x-axis limits, expanding for bar plots if present."""
         if not datasets:
-            # Fallback default (avoid crash if called before data is added)
+            # Nothing to plot yet — return a neutral default
             return (0.0, 1.0)
 
         all_x = np.concatenate([d.x for d in datasets])
         x_min, x_max = float(np.min(all_x)), float(np.max(all_x))
 
-        # Only expand if we have at least one bar plot
-        bar_xs = np.concatenate([d.x for d in datasets if isinstance(d, BarPlot)])
-        if len(bar_xs) > 0:
+        # Collect only bar plot x-values
+        bar_xs_list = [d.x for d in datasets if isinstance(d, BarPlot)]
+        if bar_xs_list:
+            bar_xs = np.concatenate(bar_xs_list)
             diffs = np.diff(np.sort(bar_xs))
             bar_width = diffs[0] if len(diffs) > 0 else 1.0
             half_width = bar_width / 2.0
 
-            x_min = min(x_min, np.min(bar_xs) - half_width)
-            x_max = max(x_max, np.max(bar_xs) + half_width)
+            x_min -= half_width
+            x_max += half_width
 
         return x_min, x_max
 

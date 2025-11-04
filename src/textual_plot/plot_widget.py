@@ -981,6 +981,11 @@ class PlotWidget(Widget, can_focus=True):
     def get_hires_pixel_from_coordinate(
         self, x: FloatScalar, y: FloatScalar
     ) -> tuple[FloatScalar, FloatScalar]:
+        # Defensive range handling to prevent NaNs
+        if self._x_max == self._x_min:
+            self._x_max = self._x_min + 1e-6
+        if self._y_max == self._y_min:
+            self._y_max = self._y_min + 1e-6
         return map_coordinate_to_hires_pixel(
             x,
             y,

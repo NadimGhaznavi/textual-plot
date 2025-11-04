@@ -565,6 +565,10 @@ class PlotWidget(Widget, can_focus=True):
 
     def _get_x_limits(self, datasets: list[DataSet]) -> tuple[float, float]:
         """Compute x-axis limits, expanding for bar plots if present."""
+        if not datasets:
+            # Fallback default (avoid crash if called before data is added)
+            return (0.0, 1.0)
+
         all_x = np.concatenate([d.x for d in datasets])
         x_min, x_max = float(np.min(all_x)), float(np.max(all_x))
 

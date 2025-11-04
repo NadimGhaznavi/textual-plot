@@ -909,25 +909,28 @@ class PlotWidget(Widget, can_focus=True):
     def get_ticks_between(
         self, min_: float, max_: float, max_ticks: int = 8
     ) -> tuple[list[float], list[str]]:
+        """Return tick positions and labels between min_ and max_ safely."""
         delta_x = max_ - min_
+
+        # Prevent math domain error for zero-width ranges
+        if delta_x == 0:
+            tick_value = min_
+            return [tick_value], [str(round(tick_value, 2))]
+
         tick_spacing = delta_x / 5
         power = floor(log10(tick_spacing))
         approx_interval = tick_spacing / 10**power
         intervals = np.array([1, 2, 5, 10])
+        interval = intervals[np.argmin(np.abs(intervals - approx_interval))] * 10**power
 
-        idx = intervals.searchsorted(approx_interval)
-        interval = (intervals[idx - 1] if idx > 0 else intervals[0]) * 10**power
-        if delta_x // interval > max_ticks:
-            interval = intervals[idx] * 10**power
-        ticks = [
-            float(t)
-            for t in np.arange(
-                ceil(min_ / interval) * interval, max_ + interval / 2, interval
-            )
-        ]
-        decimals = -min(0, power)
-        tick_labels = self.get_labels_for_ticks(ticks, decimals)
-        return ticks, tick_labels
+        ticks = np.arange(
+            floor(min_ / interval) * interval,
+            ceil(max_ / interval) * interval + interval / 2,
+            interval,
+        )
+        labels = [str(round(t, 2)) for t in ticks]
+
+        return ticks.tolist(), labels
 
     def get_labels_for_ticks(
         self, ticks: Sequence[float], decimals: int | None = None

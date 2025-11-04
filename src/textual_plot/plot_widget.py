@@ -1114,6 +1114,11 @@ def map_coordinate_to_pixel(
     ymax: float,
     region: Region,
 ) -> tuple[int, int]:
+    # Prevent zero-range errors (e.g., single data point)
+    if xmax == xmin:
+        xmax = xmin + 1e-6
+    if ymax == ymin:
+        ymax = ymin + 1e-6
     x = floor(linear_mapper(x, xmin, xmax, region.x, region.right))
     # positive y direction is reversed
     y = ceil(linear_mapper(y, ymin, ymax, region.bottom - 1, region.y - 1))
